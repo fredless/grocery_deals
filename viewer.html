@@ -468,9 +468,22 @@
     render();
   }
 
+  // "5.0" -> "$5", "4.99" -> "$4.99"; anything non-numeric ("BOGO", "2 for") is shown as-is
+  function money(v) {
+    const s = String(v ?? '').trim();
+    if (!s) return '';
+    if (!/^\d+(\.\d+)?$/.test(s)) return s;
+    const n = Number(s);
+    return '$' + (Number.isInteger(n) ? n : n.toFixed(2));
+  }
+
   function formatPrice(item) {
-    return [item.pre_price_text, item.sale_price, item.post_price_text]
-      .filter(Boolean).join(' ') || item.regular_price || '—';
+    const pre = (item.pre_price_text || '').trim();
+    const post = (item.post_price_text || '').trim();
+    const price = money(item.sale_price);
+    if (!price) return money(item.regular_price) || '—';
+    // "2/" + "$5" reads as "2/$5"; "$4.99" + "lb" reads as "$4.99 lb"
+    return (pre ? pre + (pre.endsWith('/') ? '' : ' ') : '') + price + (post ? ' ' + post : '');
   }
 
   function formatExpiry(item) {

@@ -15,6 +15,7 @@ load_dotenv()
 
 FLYERS_URL = "https://backflipp.wishabi.com/flipp/flyers"
 FLYER_URL = "https://backflipp.wishabi.com/flipp/flyers/{}"
+ITEM_URL = "https://backflipp.wishabi.com/flipp/items/{}"
 
 STORES = json.load(open("stores.json"))
 os.makedirs("data", exist_ok=True)
@@ -37,6 +38,19 @@ def find_flyers(store):
         and (f.get("valid_to") or "")[:10] >= cutoff
     ]
     return sorted(flyers, key=lambda f: f.get("valid_from") or "")
+
+
+def item_details(item_id):
+    """Per-item detail (sale text, unit text, regular price, SKU). The flyer's item list omits these.
+    Returns {} on any failure so the scrape still works with just the list data."""
+    try:
+        r = requests.get(ITEM_URL.format(item_id), params={"locale": "en-US"}, timeout=30)
+        if r.status_code != 200:
+            return {}
+        data = r.json()
+        return data.get("item", data) if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 def date_only(v):
@@ -77,6 +91,7 @@ def ingest(store):
         print(f"[{sid}] Flyer {fid}: {len(items)} items")
 
         rows = []
+        detailed = 0
         for item in items:
             name = item.get("name")
             if not name:
@@ -86,22 +101,31 @@ def ingest(store):
             if (name, start, end) in existing_keys:
                 continue
             existing_keys.add((name, start, end))
+
+            d = item_details(item.get("id"))
+            if d:
+                detailed += 1
+                if detailed == 1:
+                    print(f"[{sid}] item detail fields: {sorted(d.keys())}")
+                time.sleep(random.uniform(0.05, 0.15))
+
             rows.append({
                 "timestamp": datetime.now().isoformat(),
                 "id": item.get("id"),
                 "name": name,
-                "sale_desc": item.get("sale_story"),
-                "SKU": item.get("sku"),
-                "pre_price_text": item.get("pre_price_text"),
-                "sale_price": item.get("current_price") or item.get("price"),
-                "post_price_text": item.get("post_price_text"),
-                "regular_price": item.get("original_price"),
-                "brand": item.get("brand"),
+                "sale_desc": d.get("sale_story"),
+                "SKU": d.get("sku"),
+                "pre_price_text": d.get("pre_price_text"),
+                "sale_price": d.get("current_price") or item.get("price"),
+                "post_price_text": d.get("post_price_text"),
+                "regular_price": d.get("original_price"),
+                "brand": item.get("brand") or d.get("brand"),
                 "start_date": start,
                 "end_date": end,
                 "category": None,
-                "image_url": item.get("cutout_image_url") or item.get("image_url"),
+                "image_url": item.get("cutout_image_url") or d.get("image_url"),
             })
+        print(f"[{sid}] Detail fetched for {detailed}/{len(rows)} new items")
 
         if rows:
             df_new = pd.DataFrame(rows)

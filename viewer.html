@@ -324,6 +324,12 @@
     selectedCats.clear(); selectedCats.add('__all__');
     document.querySelectorAll('#chip-row .chip:not(.all-chip)').forEach(c => c.remove());
     document.querySelector('#chip-row .all-chip').classList.add('active');
+    // a store with no active deals (flyer just ended, next not out yet) would look empty, so show expired ones
+    const autoExpired = data.active.length === 0 && data.expired.length > 0;
+    status.active = !autoExpired;
+    status.expired = autoExpired;
+    document.getElementById('btn-active').classList.toggle('on', status.active);
+    document.getElementById('btn-expired').classList.toggle('on', status.expired);
     buildChips();
     render();
   }

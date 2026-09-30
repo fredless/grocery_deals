@@ -312,6 +312,9 @@
   }
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
+  // "2026-09-29" alone parses as UTC midnight, which is the previous evening in the US; parse as local time instead
+  function localDate(s) { return new Date(s + 'T00:00:00'); }
+
   function selectStore(id) {
     currentStore = id;
     const st = stores.find(s => s.id === id);
@@ -319,8 +322,8 @@
     document.querySelectorAll('#store-row .status-btn').forEach(b => b.classList.toggle('on', b.dataset.id === id));
     const today = new Date(); today.setHours(0,0,0,0);
     const all = allItems.filter(i => i.store === id);
-    data.active  = all.filter(i => new Date(i.end_date) >= today);
-    data.expired = all.filter(i => new Date(i.end_date) <  today);
+    data.active  = all.filter(i => localDate(i.end_date) >= today);
+    data.expired = all.filter(i => localDate(i.end_date) <  today);
     selectedCats.clear(); selectedCats.add('__all__');
     document.querySelectorAll('#chip-row .chip:not(.all-chip)').forEach(c => c.remove());
     document.querySelector('#chip-row .all-chip').classList.add('active');
@@ -416,7 +419,7 @@
 
   function formatExpiry(item) {
     const today = new Date(); today.setHours(0,0,0,0);
-    const end = new Date(item.end_date);
+    const end = localDate(item.end_date);
     if (item.friday_only) return `Fri ${item.end_date}`;
     if (end < today) return `expired ${item.end_date}`;
     return `expires ${item.end_date}`;

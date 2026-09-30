@@ -344,7 +344,7 @@
   }
 
   let allItems = [];
-  Promise.all([fetch('stores.json').then(r => r.json()), fetch('deals.json').then(r => r.json())])
+  Promise.all([fetch('stores.json', {cache: 'no-cache'}).then(r => r.json()), fetch('deals.json', {cache: 'no-cache'}).then(r => r.json())])
     .then(([storeList, json]) => {
       stores = storeList;
       allItems = [...(json.active || []), ...(json.expired || [])];

@@ -2,7 +2,7 @@ name: Scrape Weekly Ads
 
 on:
   schedule:
-    - cron: '0 10 * * 3'  # every Wednesday at 10am UTC
+    - cron: '0 10 * * 3,4'  # Wednesday and Thursday at 10am UTC (already-processed flyers are skipped)
   workflow_dispatch:        # can trigger it manually from GitHub too
 
 permissions:

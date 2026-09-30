@@ -3,7 +3,7 @@ import re
 import requests
 import csv
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import time
 import random
@@ -25,15 +25,16 @@ def norm(s):
 
 
 def find_flyers(store):
-    """Current and upcoming flyers for the store's merchant near its postal code."""
+    """Current, upcoming and just-ended flyers for the store's merchant near its postal code."""
     r = requests.get(FLYERS_URL, params={"postal_code": store["postal_code"], "locale": "en-US"}, timeout=30)
     r.raise_for_status()
     want = norm(store["merchant"])
-    today = datetime.now().date().isoformat()
+    # keep flyers that ended in the last week too, so a flyer that lapsed before its successor is published isn't missed
+    cutoff = (datetime.now().date() - timedelta(days=7)).isoformat()
     flyers = [
         f for f in r.json().get("flyers", [])
         if want in (norm(f.get("merchant")), norm(f.get("merchant_slug")))
-        and (f.get("valid_to") or "")[:10] >= today
+        and (f.get("valid_to") or "")[:10] >= cutoff
     ]
     return sorted(flyers, key=lambda f: f.get("valid_from") or "")
 

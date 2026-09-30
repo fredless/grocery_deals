@@ -258,7 +258,7 @@
   <button class="status-btn on" id="btn-active" onclick="toggleStatus('active')">Active</button>
   <button class="status-btn" id="btn-expired" onclick="toggleStatus('expired')">Expired</button>
   <div class="status-divider"></div>
-  <button class="status-btn friday-btn" id="btn-friday" onclick="toggleFriday()">$5 Fridays Only</button>
+  <button class="status-btn friday-btn" id="btn-special" onclick="toggleSpecial()" style="display:none"></button>
 </div>
 
 <div id="sticky-header">
@@ -287,7 +287,7 @@
   let data = { active: [], expired: [] };
   const status = { active: true, expired: false };
   const selectedCats = new Set(['__all__']);
-  let fridayOnly = false;
+  let specialOnly = false;
   let stores = [];
   let currentStore = null;
   let viewMode = 'list';
@@ -324,6 +324,12 @@
     const all = allItems.filter(i => i.store === id);
     data.active  = all.filter(i => localDate(i.end_date) >= today);
     data.expired = all.filter(i => localDate(i.end_date) <  today);
+    const sp = currentSpecial();
+    const spBtn = document.getElementById('btn-special');
+    specialOnly = false;
+    spBtn.classList.remove('on');
+    spBtn.style.display = sp ? '' : 'none';
+    if (sp) spBtn.textContent = sp.button;
     selectedCats.clear(); selectedCats.add('__all__');
     document.querySelectorAll('#chip-row .chip:not(.all-chip)').forEach(c => c.remove());
     document.querySelector('#chip-row .all-chip').classList.add('active');
@@ -406,9 +412,14 @@
     render();
   }
 
-  function toggleFriday() {
-    fridayOnly = !fridayOnly;
-    document.getElementById('btn-friday').classList.toggle('on', fridayOnly);
+  function currentSpecial() {
+    const st = stores.find(s => s.id === currentStore);
+    return (st && st.daily_special) || null;
+  }
+
+  function toggleSpecial() {
+    specialOnly = !specialOnly;
+    document.getElementById('btn-special').classList.toggle('on', specialOnly);
     render();
   }
 
@@ -420,7 +431,8 @@
   function formatExpiry(item) {
     const today = new Date(); today.setHours(0,0,0,0);
     const end = localDate(item.end_date);
-    if (item.friday_only) return `Fri ${item.end_date}`;
+    const sp = currentSpecial();
+    if (item.daily_special && sp) return `${sp.short} ${item.end_date}`;
     if (end < today) return `expired ${item.end_date}`;
     return `expires ${item.end_date}`;
   }
@@ -435,8 +447,8 @@
       ...(status.expired ? sortAlpha(data.expired) : []),
     ];
 
-    if (fridayOnly) {
-      items = items.filter(i => i.friday_only);
+    if (specialOnly) {
+      items = items.filter(i => i.daily_special);
     }
 
     if (!selectedCats.has('__all__')) {
@@ -460,7 +472,7 @@
             <div class="item-body">
               <span class="name">
                 ${item.name || '—'}
-                ${item.friday_only ? '<span class="friday-badge">$5 Friday</span>' : ''}
+                ${item.daily_special && currentSpecial() ? `<span class="friday-badge">${currentSpecial().badge}</span>` : ''}
                 ${item.sale_desc ? `<div class="sale-desc">${item.sale_desc}</div>` : ''}
               </span>
               <span class="right">

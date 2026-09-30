@@ -2,17 +2,29 @@
   {
     "id": "safeway-felton",
     "name": "Safeway",
-    "location": "Felton, CA — 6255 Graham Hill Rd",
+    "location": "Felton, CA \u2014 6255 Graham Hill Rd",
     "merchant": "safeway",
     "postal_code": "95018",
-    "store_code": ""
+    "store_code": "",
+    "daily_special": {
+      "weekday": "Friday",
+      "button": "$5 Fridays Only",
+      "badge": "$5 Friday",
+      "short": "Fri"
+    }
   },
   {
     "id": "nobhill-scotts-valley",
     "name": "Nob Hill Foods",
-    "location": "Scotts Valley, CA — 222 Mt Hermon Rd",
+    "location": "Scotts Valley, CA \u2014 222 Mt Hermon Rd",
     "merchant": "nob_hill_foods",
     "postal_code": "95066",
-    "store_code": ""
+    "store_code": "",
+    "daily_special": {
+      "weekday": "Monday",
+      "button": "$5 Mondays Only",
+      "badge": "$5 Monday",
+      "short": "Mon"
+    }
   }
 ]

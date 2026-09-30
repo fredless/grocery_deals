@@ -18,6 +18,7 @@ for store in stores:
         continue
     d = pd.DataFrame(rows[1:], columns=rows[0])
     d["store"] = store["id"]
+    d["special_weekday"] = (store.get("daily_special") or {}).get("weekday", "")
     frames.append(d)
 
 if not frames:
@@ -41,8 +42,13 @@ df['brand'] = df['brand'].map(fix_text)
 df['end_date'] = pd.to_datetime(df['end_date'])
 df['start_date'] = pd.to_datetime(df['start_date'])
 
-# single-day deals (e.g. $5 Fridays)
-df['friday_only'] = df['start_date'].notna() & (df['start_date'] == df['end_date'])
+# a store's recurring one-day special (e.g. Safeway $5 Fridays, Nob Hill $5 Mondays): a single-day deal on that store's weekday
+df['daily_special'] = (
+    df['start_date'].notna()
+    & (df['start_date'] == df['end_date'])
+    & (df['end_date'].dt.day_name() == df['special_weekday'])
+)
+df = df.drop(columns=['special_weekday'])
 active_df   = df[df['end_date'] >= today].sort_values('name')
 expired_df  = df[df['end_date'] <  today].sort_values('name')
 

@@ -4,7 +4,8 @@ import csv
 import os
 
 stores = json.load(open("stores.json"))
-today = pd.Timestamp('today').normalize()
+# stores are in California; the runner's clock is UTC, which is already "tomorrow" in the evening
+today = pd.Timestamp.now(tz='America/Los_Angeles').tz_localize(None).normalize()
 
 frames = []
 for store in stores:

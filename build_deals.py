@@ -26,6 +26,17 @@ if not frames:
     raise SystemExit
 
 df = pd.concat(frames, ignore_index=True)
+
+# Flipp images come back as http:// (blocked as mixed content on https Pages)
+df['image_url'] = df['image_url'].str.replace(r'^http://', 'https://', regex=True)
+
+# some brand strings arrive double-encoded (e.g. "HÃ¤agen-Dazs"); repair them when possible
+def fix_text(s):
+    try:
+        return s.encode('latin-1').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s
+df['brand'] = df['brand'].map(fix_text)
 df['end_date'] = pd.to_datetime(df['end_date'])
 df['start_date'] = pd.to_datetime(df['start_date'])
 

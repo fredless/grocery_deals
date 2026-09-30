@@ -210,7 +210,7 @@ for store in STORES:
     if not filename or not os.path.exists(filename):
         continue
 
-    df = pd.read_csv(filename)
+    df = pd.read_csv(filename, dtype=str)
     if "category" not in df.columns:
         df["category"] = None
 

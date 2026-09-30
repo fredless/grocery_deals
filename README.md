@@ -9,8 +9,8 @@ Forked from the North Berkeley Safeway viewer. Stores are defined in `stores.jso
 
 ## Setup
 
-1. Repo secrets: `FLIPP_TOKEN` (Flipp API access token) and `GEMINI_KEY` (item categorization).
-   `FLIPP_POSTAL` / `FLIPP_STORE` are no longer used; postal code and store code live in `stores.json`.
+1. Repo secret: `GEMINI_KEY` (item categorization; get one at https://aistudio.google.com/apikey).
+   No Flipp token is needed; postal codes live in `stores.json`.
 2. Run `python discover_flipp.py 95018` (and `95066`) to list flyers near each postal code, and confirm the
    `merchant` slug in `stores.json`. The Nob Hill slug (`nob_hill_foods`) is a guess until verified this way.
    If a store's flyer is location-specific, also set `store_code`.

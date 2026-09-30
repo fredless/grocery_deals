@@ -1,4 +1,5 @@
 import json
+import re
 import requests
 import csv
 import pandas as pd
@@ -12,145 +13,109 @@ from tenacity import retry, wait_exponential_jitter, stop_after_attempt, retry_i
 
 load_dotenv()
 
-BASE = "https://api.flipp.com/flyerkit/v4.0/publications"
+FLYERS_URL = "https://backflipp.wishabi.com/flipp/flyers"
+FLYER_URL = "https://backflipp.wishabi.com/flipp/flyers/{}"
 
 STORES = json.load(open("stores.json"))
-TOKEN = os.getenv("FLIPP_TOKEN")
 os.makedirs("data", exist_ok=True)
+
+
+def norm(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def find_flyers(store):
+    """Current and upcoming flyers for the store's merchant near its postal code."""
+    r = requests.get(FLYERS_URL, params={"postal_code": store["postal_code"], "locale": "en-US"}, timeout=30)
+    r.raise_for_status()
+    want = norm(store["merchant"])
+    today = datetime.now().date().isoformat()
+    flyers = [
+        f for f in r.json().get("flyers", [])
+        if want in (norm(f.get("merchant")), norm(f.get("merchant_slug")))
+        and (f.get("valid_to") or "")[:10] >= today
+    ]
+    return sorted(flyers, key=lambda f: f.get("valid_from") or "")
+
+
+def date_only(v):
+    return (v or "")[:10]
+
 
 def ingest(store):
     sid = store["id"]
     filename = f"data/{sid}_prices.csv"
     seen_pubs_file = f"data/{sid}_seen_publications.txt"
 
-    params_publication = {
-        "access_token": TOKEN,
-        "locale": "en-US",
-        "postal_code": store["postal_code"],
-    }
-    if store.get("store_code"):
-        params_publication["store_code"] = store["store_code"]
-
-    r = requests.get(f"{BASE}/{store['merchant']}", params=params_publication)
-    publications = r.json()
-    if not publications:
-        print(f"[{sid}] No publications found")
-        return None
-
-    current_pub = publications[0]["id"]
-
-    if os.path.exists(seen_pubs_file):
-        with open(seen_pubs_file) as f:
-            seen_pubs = set(f.read().splitlines())
-    else:
-        seen_pubs = set()
-
-    if str(current_pub) in seen_pubs:
-        print(f"[{sid}] Publication {current_pub} already processed, skipping.")
+    flyers = find_flyers(store)
+    if not flyers:
+        print(f"[{sid}] No current flyers found")
         return filename
 
-    PRODUCTS_URL = f"https://dam.flippenterprise.net/flyerkit/publication/{current_pub}/products"
+    seen_pubs = set(open(seen_pubs_file).read().splitlines()) if os.path.exists(seen_pubs_file) else set()
 
-    params_product = {
-        "display_type": "all",
-        "locale": "en-US",
-        "access_token": TOKEN
-    }
-
-    r = requests.get(PRODUCTS_URL, params=params_product)
-    items = r.json()
-
-    if not items:
-        print("Warning: No products found in the current publication")
-        return filename
-
-    if os.path.exists(filename):
-        existing_df = pd.read_csv(filename)
-    else:
-        existing_df = pd.DataFrame(columns=["name", "start_date", "end_date"])
-
-    print(f"Number of Items: {len(items)}")
-
-    rows = []
-
-    # INGEST PRODUCTS
-
-    for index, item in enumerate(items, start=1):
-        pid = item.get("id")
-
-        if not pid:
-            print("Skipped item (missing ID)")
+    for flyer in flyers:
+        fid = str(flyer["id"])
+        if fid in seen_pubs:
+            print(f"[{sid}] Flyer {fid} already processed, skipping.")
             continue
 
-        url = f"https://dam.flippenterprise.net/flyerkit/product/{pid}"
-        r = requests.get(url, params=params_product)
-
-        if r.status_code != 200:
-            print("Failed:", pid)
+        r = requests.get(FLYER_URL.format(fid), params={"locale": "en-US"}, timeout=60)
+        r.raise_for_status()
+        items = r.json().get("items") or []
+        if not items:
+            print(f"[{sid}] Flyer {fid} has no items yet, will retry next run")
             continue
 
-        data = r.json()
-
-        row = {
-            "timestamp": datetime.now().isoformat(),
-            "id": data.get("id"),
-            "name": data.get("name"),
-            "sale_desc": data.get("sale_story"),
-            "SKU": data.get("sku"),
-            "pre_price_text": data.get("pre_price_text"),
-            "sale_price": data.get("price_text"),
-            "post_price_text": data.get("post_price_text"),
-            "regular_price": data.get("original_price"),
-            "brand": data.get("brand"),
-            "start_date": data.get("valid_from"),
-            "end_date": data.get("valid_to"),
-            "image_url": data.get("image_url")
-        }
-
-        is_duplicate = (
-            (existing_df["name"] == row["name"]) &
-            (existing_df["start_date"] == row["start_date"]) &
-            (existing_df["end_date"] == row["end_date"])
-        )
-
-        if is_duplicate.any():
-            print(f"Skipped duplicate: {row['name']}")
-            continue
-
-        rows.append(row)
-
-        print(f"[{index}/{len(items)}] {data.get('name')}")
-
-        time.sleep(random.uniform(0.1, 0.3))
-
-    # WRITE CSV
-
-    if rows:
-        df_new = pd.DataFrame(rows)
-        df_new["category"] = None
-
-        df_new = df_new[
-            [
-                "timestamp","id","name","sale_desc","SKU",
-                "pre_price_text","sale_price","post_price_text",
-                "regular_price","brand","start_date","end_date",
-                "category","image_url"
-            ]
-        ]
-
-        if not os.path.exists(filename):
-            df_new.to_csv(filename, index=False, quoting=csv.QUOTE_ALL)
+        if os.path.exists(filename):
+            existing_df = pd.read_csv(filename, dtype=str)
         else:
-            with open(filename, "rb+") as f:
-                f.seek(-1, 2)
-                if f.read(1) != b"\n":
-                    f.write(b"\n")
-            df_new.to_csv(filename, mode="a", header=False, index=False, quoting=csv.QUOTE_ALL)
+            existing_df = pd.DataFrame(columns=["name", "start_date", "end_date"])
+        existing_keys = set(zip(existing_df["name"], existing_df["start_date"], existing_df["end_date"]))
 
-    # mark publication as processed
-    with open(seen_pubs_file, "a") as f:
-        f.write(str(current_pub) + "\n")
+        print(f"[{sid}] Flyer {fid}: {len(items)} items")
 
+        rows = []
+        for item in items:
+            name = item.get("name")
+            if not name:
+                continue
+            start = date_only(item.get("valid_from") or flyer.get("valid_from"))
+            end = date_only(item.get("valid_to") or flyer.get("valid_to"))
+            if (name, start, end) in existing_keys:
+                continue
+            existing_keys.add((name, start, end))
+            rows.append({
+                "timestamp": datetime.now().isoformat(),
+                "id": item.get("id"),
+                "name": name,
+                "sale_desc": item.get("sale_story"),
+                "SKU": item.get("sku"),
+                "pre_price_text": item.get("pre_price_text"),
+                "sale_price": item.get("current_price") or item.get("price"),
+                "post_price_text": item.get("post_price_text"),
+                "regular_price": item.get("original_price"),
+                "brand": item.get("brand"),
+                "start_date": start,
+                "end_date": end,
+                "category": None,
+                "image_url": item.get("cutout_image_url") or item.get("image_url"),
+            })
+
+        if rows:
+            df_new = pd.DataFrame(rows)
+            if not os.path.exists(filename):
+                df_new.to_csv(filename, index=False, quoting=csv.QUOTE_ALL)
+            else:
+                with open(filename, "rb+") as f:
+                    f.seek(-1, 2)
+                    if f.read(1) != b"\n":
+                        f.write(b"\n")
+                df_new.to_csv(filename, mode="a", header=False, index=False, quoting=csv.QUOTE_ALL)
+        print(f"[{sid}] Added {len(rows)} new items")
+
+        with open(seen_pubs_file, "a") as f:
+            f.write(fid + "\n")
 
     return filename
 

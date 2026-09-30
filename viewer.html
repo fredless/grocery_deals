@@ -250,8 +250,9 @@
 </head>
 <body>
 
-<h2>Safeway WeeklyAd Viewer</h2>
-<p style="font-size:0.82rem; color:#999; margin-top:0.25rem; margin-bottom:1.25rem;">📍 Berkeley, CA — Shattuck Ave</p>
+<h2>Weekly Ad Viewer</h2>
+<p id="store-location" style="font-size:0.82rem; color:#999; margin-top:0.25rem; margin-bottom:0.75rem;"></p>
+<div class="status-row" id="store-row"></div>
   
 <div class="status-row">
   <button class="status-btn on" id="btn-active" onclick="toggleStatus('active')">Active</button>
@@ -287,6 +288,8 @@
   const status = { active: true, expired: false };
   const selectedCats = new Set(['__all__']);
   let fridayOnly = false;
+  let stores = [];
+  let currentStore = null;
   let viewMode = 'list';
 
   function setView(mode) {
@@ -309,19 +312,41 @@
   }
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
-  fetch('deals.json')
-    .then(r => r.json())
-    .then(json => {
-      const today = new Date(); today.setHours(0,0,0,0);
-      const all = [...(json.active || []), ...(json.expired || [])];
-      data.active  = all.filter(i => new Date(i.end_date) >= today);
-      data.expired = all.filter(i => new Date(i.end_date) <  today);
-      buildChips();
-      render();
+  function selectStore(id) {
+    currentStore = id;
+    const st = stores.find(s => s.id === id);
+    document.getElementById('store-location').textContent = st ? `📍 ${st.name} — ${st.location}` : '';
+    document.querySelectorAll('#store-row .status-btn').forEach(b => b.classList.toggle('on', b.dataset.id === id));
+    const today = new Date(); today.setHours(0,0,0,0);
+    const all = allItems.filter(i => i.store === id);
+    data.active  = all.filter(i => new Date(i.end_date) >= today);
+    data.expired = all.filter(i => new Date(i.end_date) <  today);
+    selectedCats.clear(); selectedCats.add('__all__');
+    document.querySelectorAll('#chip-row .chip:not(.all-chip)').forEach(c => c.remove());
+    document.querySelector('#chip-row .all-chip').classList.add('active');
+    buildChips();
+    render();
+  }
+
+  let allItems = [];
+  Promise.all([fetch('stores.json').then(r => r.json()), fetch('deals.json').then(r => r.json())])
+    .then(([storeList, json]) => {
+      stores = storeList;
+      allItems = [...(json.active || []), ...(json.expired || [])];
+      const row = document.getElementById('store-row');
+      stores.forEach(st => {
+        const b = document.createElement('button');
+        b.className = 'status-btn';
+        b.dataset.id = st.id;
+        b.textContent = st.name + ' ' + st.location.split(',')[0];
+        b.onclick = () => selectStore(st.id);
+        row.appendChild(b);
+      });
+      selectStore(stores[0].id);
     })
     .catch(() => {
       document.getElementById('list').innerHTML =
-        '<li><span class="name">Could not load deals.json. Run safeway_visualization.py first.</span></li>';
+        '<li><span class="name">Could not load deals.json. Run build_deals.py first.</span></li>';
     });
 
   function buildChips() {

@@ -291,6 +291,63 @@
 
       #lightbox img { max-width: 94vw; }
     }
+
+    /* Shopping list */
+    li { position: relative; }
+    .add-btn {
+      flex: 0 0 auto;
+      width: 2.3rem; height: 2.3rem;
+      border-radius: 50%;
+      border: 1.5px solid #d0cfc9;
+      background: #fff;
+      color: #2d6a4f;
+      font-size: 1.25rem; font-weight: 700; line-height: 1;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .add-btn.on { background: #2d6a4f; border-color: #2d6a4f; color: #fff; }
+    ul.grid-view .add-btn { position: absolute; top: 6px; right: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+
+    #list-fab {
+      position: fixed; right: 1rem; bottom: 1rem; z-index: 800;
+      display: none;
+      border: none; border-radius: 999px;
+      background: #2d6a4f; color: #fff;
+      padding: 0.75rem 1.1rem;
+      font: 700 0.95rem 'Lato', sans-serif;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      cursor: pointer;
+    }
+    #list-fab.show { display: block; }
+    body.has-list { padding-bottom: 4.5rem; }
+
+    #shop-panel {
+      display: none;
+      position: fixed; inset: 0; z-index: 900;
+      background: #f5f4f0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    #shop-panel.open { display: block; }
+    .shop-inner { max-width: 860px; margin: 0 auto; padding: 1rem 1.25rem 3rem; }
+    .shop-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+    .shop-head h2 { margin: 0; }
+    .shop-close { border: 1.5px solid #d0cfc9; background: #fff; border-radius: 999px; padding: 0.5rem 1rem; font: 600 0.9rem 'Lato', sans-serif; cursor: pointer; }
+    .shop-store { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin: 1.1rem 0 0.25rem; }
+    .shop-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0; border-bottom: 1px solid #e6e5e0; cursor: pointer; }
+    .shop-check {
+      flex: 0 0 auto; width: 1.6rem; height: 1.6rem; border-radius: 6px;
+      border: 2px solid #b8b7b0; background: #fff;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 900; font-size: 1rem;
+    }
+    .shop-item.checked .shop-check { background: #2d6a4f; border-color: #2d6a4f; }
+    .shop-item.checked .shop-name, .shop-item.checked .price { text-decoration: line-through; color: #aaa; }
+    .shop-name { flex: 1; min-width: 0; font-size: 0.95rem; line-height: 1.35; overflow-wrap: anywhere; }
+    .shop-remove { flex: 0 0 auto; border: none; background: none; color: #aaa; font-size: 1.4rem; line-height: 1; padding: 0.25rem 0.4rem; cursor: pointer; }
+    .shop-expired { color: #b91c1c; }
+    .shop-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1.25rem; }
+    .shop-empty { color: #999; margin-top: 1.5rem; }
   </style>
 </head>
 <body>
@@ -322,6 +379,18 @@
   </div>
 </div>
 <ul id="list"></ul>
+
+<button id="list-fab" onclick="openShopList()"></button>
+
+<div id="shop-panel">
+  <div class="shop-inner">
+    <div class="shop-head">
+      <h2>Shopping list</h2>
+      <button class="shop-close" onclick="closeShopList()">Done</button>
+    </div>
+    <div id="shop-body"></div>
+  </div>
+</div>
 
 <!-- Lightbox -->
 <div id="lightbox" onclick="closeLightbox()">
@@ -355,7 +424,7 @@
   function closeLightbox() {
     document.getElementById('lightbox').classList.remove('open');
   }
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLightbox(); closeShopList(); } });
 
   // "2026-09-29" alone parses as UTC midnight, which is the previous evening in the US; parse as local time instead
   function localDate(s) { return new Date(s + 'T00:00:00'); }
@@ -538,11 +607,164 @@
                 <div class="expiry">${formatExpiry(item)}</div>
               </span>
             </div>
+            ${addButton(item)}
           </li>`).join('')
       : '<li><span class="name" style="color:#aaa">No items found.</span></li>';
   }
 
   // Hide on scroll down, show on scroll up
+  // ---- Shopping list ----
+  // Kept in localStorage (not sessionStorage): mobile browsers drop sessionStorage whenever they discard a
+  // background tab, which would lose the list between browsing at home and shopping in the store.
+  const LIST_KEY = 'grocery_shopping_list_v1';
+  let shopList = {};
+  try { shopList = JSON.parse(localStorage.getItem(LIST_KEY)) || {}; } catch (e) { shopList = {}; }
+  const shownItems = {};
+
+  function saveList() {
+    try { localStorage.setItem(LIST_KEY, JSON.stringify(shopList)); } catch (e) {}
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function itemKey(item) {
+    return `${item.store}:${item.id || (item.name + '|' + item.end_date)}`;
+  }
+
+  function addButton(item) {
+    const key = itemKey(item);
+    shownItems[key] = item;
+    const on = !!shopList[key];
+    return `<button class="add-btn${on ? ' on' : ''}" data-key="${esc(key)}"
+              aria-label="${on ? 'Remove from' : 'Add to'} shopping list">${on ? '✓' : '+'}</button>`;
+  }
+
+  function toggleOnList(key) {
+    if (shopList[key]) {
+      delete shopList[key];
+    } else {
+      const item = shownItems[key];
+      if (!item) return;
+      const st = stores.find(s => s.id === item.store);
+      const sp = st && st.daily_special;
+      // snapshot what the list needs, so it still shows correctly after deals.json is updated
+      shopList[key] = {
+        store: item.store,
+        name: item.name,
+        sale_desc: item.sale_desc || '',
+        price: formatPrice(item),
+        end_date: item.end_date,
+        badge: item.daily_special && sp ? sp.badge : '',
+        expiry: formatExpiry(item),
+        checked: false,
+        added: Date.now(),
+      };
+    }
+    saveList();
+    updateListUI();
+  }
+
+  function updateListUI() {
+    const n = Object.keys(shopList).length;
+    const left = Object.values(shopList).filter(i => !i.checked).length;
+    const fab = document.getElementById('list-fab');
+    fab.textContent = n ? `🛒 List · ${left}${left !== n ? '/' + n : ''}` : '';
+    fab.classList.toggle('show', n > 0);
+    document.body.classList.toggle('has-list', n > 0);
+    document.querySelectorAll('#list .add-btn').forEach(b => {
+      const on = !!shopList[b.dataset.key];
+      b.classList.toggle('on', on);
+      b.textContent = on ? '✓' : '+';
+      b.setAttribute('aria-label', (on ? 'Remove from' : 'Add to') + ' shopping list');
+    });
+    if (document.getElementById('shop-panel').classList.contains('open')) renderShopList();
+  }
+
+  function renderShopList() {
+    const body = document.getElementById('shop-body');
+    const entries = Object.entries(shopList);
+    if (!entries.length) {
+      body.innerHTML = '<p class="shop-empty">Your list is empty. Tap + on a deal to add it.</p>';
+      return;
+    }
+    const today = new Date(); today.setHours(0,0,0,0);
+    const order = stores.map(s => s.id);
+    const byStore = {};
+    entries.forEach(([k, it]) => (byStore[it.store] = byStore[it.store] || []).push([k, it]));
+    const storeIds = Object.keys(byStore).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+
+    body.innerHTML = storeIds.map(sid => {
+      const st = stores.find(s => s.id === sid);
+      const label = st ? `${st.name} — ${st.location.split(',')[0]}` : sid;
+      const rows = byStore[sid]
+        .sort((a, b) => (a[1].checked - b[1].checked) || a[1].name.localeCompare(b[1].name))
+        .map(([k, it]) => {
+          const expired = it.end_date && localDate(it.end_date) < today;
+          return `
+            <div class="shop-item${it.checked ? ' checked' : ''}" data-key="${esc(k)}">
+              <span class="shop-check">${it.checked ? '✓' : ''}</span>
+              <span class="shop-name">
+                ${esc(it.name)}
+                ${it.badge ? `<span class="friday-badge">${esc(it.badge)}</span>` : ''}
+                ${it.sale_desc ? `<div class="sale-desc">${esc(it.sale_desc)}</div>` : ''}
+              </span>
+              <span class="right">
+                <div class="price">${esc(it.price)}</div>
+                <div class="expiry${expired ? ' shop-expired' : ''}">${expired ? 'expired ' + esc(it.end_date) : esc(it.expiry)}</div>
+              </span>
+              <button class="shop-remove" data-remove="${esc(k)}" aria-label="Remove">×</button>
+            </div>`;
+        }).join('');
+      return `<div class="shop-store">${esc(label)}</div>${rows}`;
+    }).join('') + `
+      <div class="shop-actions">
+        <button class="status-btn" onclick="removeChecked()">Remove checked</button>
+        <button class="status-btn" onclick="clearList()">Clear list</button>
+      </div>`;
+  }
+
+  function openShopList() {
+    renderShopList();
+    document.getElementById('shop-panel').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeShopList() {
+    document.getElementById('shop-panel').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  function removeChecked() {
+    Object.keys(shopList).forEach(k => { if (shopList[k].checked) delete shopList[k]; });
+    saveList(); updateListUI();
+  }
+  function clearList() {
+    if (!confirm('Remove everything from your shopping list?')) return;
+    shopList = {};
+    saveList(); updateListUI();
+  }
+
+  document.getElementById('list').addEventListener('click', e => {
+    const btn = e.target.closest('.add-btn');
+    if (btn) toggleOnList(btn.dataset.key);
+  });
+  document.getElementById('shop-body').addEventListener('click', e => {
+    const rm = e.target.closest('[data-remove]');
+    if (rm) { delete shopList[rm.dataset.remove]; saveList(); updateListUI(); return; }
+    const row = e.target.closest('.shop-item');
+    if (row && shopList[row.dataset.key]) {
+      shopList[row.dataset.key].checked = !shopList[row.dataset.key].checked;
+      saveList(); updateListUI();
+    }
+  });
+  // another tab changed the list
+  window.addEventListener('storage', e => {
+    if (e.key !== LIST_KEY) return;
+    try { shopList = JSON.parse(e.newValue) || {}; } catch (_) { shopList = {}; }
+    updateListUI();
+  });
+  updateListUI();
+
   let lastScrollY = window.scrollY;
   window.addEventListener('scroll', () => {
     const header = document.getElementById('sticky-header');

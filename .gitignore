@@ -2,3 +2,4 @@
 temp.py
 .claude
 PROJECT.md
+__pycache__/

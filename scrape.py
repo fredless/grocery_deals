@@ -69,11 +69,11 @@ def ingest(store):
 
     seen_pubs = set(open(seen_pubs_file).read().splitlines()) if os.path.exists(seen_pubs_file) else set()
 
+    # Every run re-reads each current flyer and adds only items not already saved. Flipp sometimes publishes a
+    # flyer before all its items are loaded (e.g. Monday-only specials show up later), so a flyer is never
+    # "done" while it is current.
     for flyer in flyers:
         fid = str(flyer["id"])
-        if fid in seen_pubs:
-            print(f"[{sid}] Flyer {fid} already processed, skipping.")
-            continue
 
         r = requests.get(FLYER_URL.format(fid), params={"locale": "en-US"}, timeout=60)
         r.raise_for_status()
@@ -85,7 +85,8 @@ def ingest(store):
         if os.path.exists(filename):
             existing_df = pd.read_csv(filename, dtype=str)
         else:
-            existing_df = pd.DataFrame(columns=["name", "start_date", "end_date"])
+            existing_df = pd.DataFrame(columns=["id", "name", "start_date", "end_date"])
+        existing_ids = set(existing_df["id"].dropna())
         existing_keys = set(zip(existing_df["name"], existing_df["start_date"], existing_df["end_date"]))
 
         print(f"[{sid}] Flyer {fid}: {len(items)} items")
@@ -98,8 +99,9 @@ def ingest(store):
                 continue
             start = date_only(item.get("valid_from") or flyer.get("valid_from"))
             end = date_only(item.get("valid_to") or flyer.get("valid_to"))
-            if (name, start, end) in existing_keys:
+            if str(item.get("id")) in existing_ids or (name, start, end) in existing_keys:
                 continue
+            existing_ids.add(str(item.get("id")))
             existing_keys.add((name, start, end))
 
             d = item_details(item.get("id"))
@@ -137,10 +139,13 @@ def ingest(store):
                     if f.read(1) != b"\n":
                         f.write(b"\n")
                 df_new.to_csv(filename, mode="a", header=False, index=False, quoting=csv.QUOTE_ALL)
-        print(f"[{sid}] Added {len(rows)} new items")
+        print(f"[{sid}] Flyer {fid}: added {len(rows)} new items")
 
-        with open(seen_pubs_file, "a") as f:
-            f.write(fid + "\n")
+        # record of flyers seen (informational only; no longer used to skip)
+        if fid not in seen_pubs:
+            seen_pubs.add(fid)
+            with open(seen_pubs_file, "a") as f:
+                f.write(fid + "\n")
 
     return filename
 
@@ -178,7 +183,7 @@ class GeminiTransientError(Exception):
 def call_gemini(prompt):
     try:
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview",
+            model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"),
             contents=prompt
         )
         return response
@@ -229,9 +234,15 @@ Respond with only a numbered list of category names.
 
 # RUN
 
+# A failure for one store, or in categorization, must not fail the whole run: the workflow only commits
+# after this script exits cleanly, so a crash throws away everything scraped in the run.
 for store in STORES:
     print(f"=== {store['id']} ===")
-    filename = ingest(store)
+    try:
+        filename = ingest(store)
+    except Exception as e:
+        print(f"[{store['id']}] WARNING: scrape failed, will retry next run: {e}")
+        continue
     if not filename or not os.path.exists(filename):
         continue
 
@@ -245,5 +256,9 @@ for store in STORES:
         print("All items already categorized, skipping API call.")
     else:
         print(f"Categorizing {len(uncategorized)} items...")
-        categorize_batch(df, uncategorized, filename)
-        print("Done.")
+        try:
+            categorize_batch(df, uncategorized, filename)
+            print("Done.")
+        except Exception as e:
+            # items stay uncategorized (still shown under "All") and are retried on the next run
+            print(f"WARNING: categorization stopped, will retry next run: {e}")
